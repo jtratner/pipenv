@@ -78,6 +78,17 @@ Also useful for deployment is the ``--deploy`` flag::
 This will fail a build if the ``Pipfile.lock`` is out–of–date, instead of generating a new one.
 
 
+☤ ``pipenv`` and ``conda``
+--------------------------
+
+pipenv and conda can play well together; so long as you tell pipenv to install
+into the conda environment's local python with ``--system`` (conda and
+virtualenv do not work together)::
+
+    $ source activate myenvironment
+    $ pipenv install --system
+
+
 ☤ Generating a ``requirements.txt``
 -----------------------------------
 
