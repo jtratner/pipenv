@@ -81,13 +81,14 @@ This will fail a build if the ``Pipfile.lock`` is out–of–date, instead of ge
 ☤ ``pipenv`` and ``conda``
 --------------------------
 
-pipenv and conda can play well together; so long as you tell pipenv to install
-into the conda environment's local python with ``--system`` (conda and
-virtualenv do not work together)::
+Pipenv and conda can play well together, so long as you tell pipenv to install into the
+conda environment's local python with ``--system``::
 
     $ source activate myenvironment
+    $ # optional: pip install pipenv
     $ pipenv install --system
 
+(Sadly, conda and virtualenv don't get along yet.)
 
 ☤ Generating a ``requirements.txt``
 -----------------------------------
