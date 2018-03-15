@@ -31,6 +31,8 @@ def indent_log(num=2):
     A context manager which will cause the log output to be indented for any
     log messages emitted inside it.
     """
+    if not hasattr(_log_state, 'indentation'):
+        _log_state.indentation = 0
     _log_state.indentation += num
     try:
         yield

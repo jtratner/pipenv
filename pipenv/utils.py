@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import errno
 import os
+import functools
 import hashlib
 import tempfile
 import sys
@@ -15,6 +16,7 @@ import requests
 import six
 import stat
 import warnings
+from multiprocessing.dummy import Pool as ThreadPool
 
 try:
     from weakref import finalize
@@ -433,54 +435,63 @@ def resolve_deps(
                 )
             except RuntimeError:
                 sys.exit(1)
-    for result in resolved_tree:
-        if not result.editable:
-            name = pep423_name(result.name)
-            version = clean_pkg_version(result.specifier)
-            index = index_lookup.get(result.name)
-            if not markers_lookup.get(result.name):
-                markers = str(result.markers) if result.markers and 'extra' not in str(
-                    result.markers
-                ) else None
-            else:
-                markers = markers_lookup.get(result.name)
-            collected_hashes = []
-            if 'python.org' in '|'.join([source['url'] for source in sources]):
-                try:
-                    # Grab the hashes from the new warehouse API.
-                    r = requests.get(
-                        'https://pypi.org/pypi/{0}/json'.format(name), timeout=10
-                    )
-                    api_releases = r.json()['releases']
-                    cleaned_releases = {}
-                    for api_version, api_info in api_releases.items():
-                        cleaned_releases[clean_pkg_version(api_version)] = api_info
-                    for release in cleaned_releases[version]:
-                        collected_hashes.append(release['digests']['sha256'])
-                    collected_hashes = ['sha256:' + s for s in collected_hashes]
-                except (ValueError, KeyError, ConnectionError) as e:
-                    if verbose:
-                        click.echo(
-                            '{0}: Error generating hash for {1}'.format(
-                                crayons.red('Warning', bold=True), name
-                            )
-                        )
-            # Collect un-collectable hashes (should work with devpi).
-            try:
-                collected_hashes = collected_hashes + list(
-                    list(resolver.resolve_hashes([result]).items())[0][1]
-                )
-            except (ValueError, KeyError, ConnectionError, IndexError):
-                if verbose:
-                    print('Error generating hash for {}'.format(name))
-            collected_hashes = list(set(collected_hashes))
-            d = {'name': name, 'version': version, 'hashes': collected_hashes}
-            if index:
-                d.update({'index': index})
-            if markers:
-                d.update({'markers': markers.replace('"', "'")})
-            results.append(d)
+    pool = ThreadPool(5)
+    try_public_pypi = 'python.org' in '|'.join([source['url'] for source in sources])
+    # use map_async allow breaking off with ctrl-C
+    results.extend(filter(None, pool.map_async(functools.partial(_resolveit, index_lookup=index_lookup,
+        markers_lookup=markers_lookup, try_public_pypi=try_public_pypi, verbose=verbose,
+        resolver=resolver), resolved_tree).get(9e9)))
     return results
+
+
+def _resolveit(result, index_lookup, markers_lookup, try_public_pypi, verbose, resolver):
+    if result.editable:
+        return
+    name = pep423_name(result.name)
+    version = clean_pkg_version(result.specifier)
+    index = index_lookup.get(result.name)
+    if not markers_lookup.get(result.name):
+        markers = str(result.markers) if result.markers and 'extra' not in str(
+            result.markers
+        ) else None
+    else:
+        markers = markers_lookup.get(result.name)
+    collected_hashes = []
+    if try_public_pypi:
+        try:
+            # Grab the hashes from the new warehouse API.
+            r = requests.get(
+                'https://pypi.org/pypi/{0}/json'.format(name), timeout=10
+            )
+            api_releases = r.json()['releases']
+            cleaned_releases = {}
+            for api_version, api_info in api_releases.items():
+                cleaned_releases[clean_pkg_version(api_version)] = api_info
+            for release in cleaned_releases[version]:
+                collected_hashes.append(release['digests']['sha256'])
+            collected_hashes = ['sha256:' + s for s in collected_hashes]
+        except (ValueError, KeyError, ConnectionError) as e:
+            if verbose:
+                click.echo(
+                    '{0}: Error generating hash for {1}'.format(
+                        crayons.red('Warning', bold=True), name
+                    )
+                )
+    # Collect un-collectable hashes (should work with devpi).
+    try:
+        collected_hashes = collected_hashes + list(
+            list(resolver.resolve_hashes([result]).items())[0][1]
+        )
+    except (ValueError, KeyError, ConnectionError, IndexError):
+        if verbose:
+            print('Error generating hash for {}'.format(name))
+    collected_hashes = list(set(collected_hashes))
+    d = {'name': name, 'version': version, 'hashes': collected_hashes}
+    if index:
+        d.update({'index': index})
+    if markers:
+        d.update({'markers': markers.replace('"', "'")})
+    return d
 
 
 def multi_split(s, split):

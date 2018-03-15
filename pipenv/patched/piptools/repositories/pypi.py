@@ -277,6 +277,8 @@ class PyPIRepository(BaseRepository):
         }
 
     def _get_file_hash(self, location):
+        import datetime
+        print('HASH', datetime.datetime.now(), location)
         h = hashlib.new(FAVORITE_HASH)
         with open_local_or_remote_file(location, self.session) as fp:
             for chunk in iter(lambda: fp.read(8096), b""):
