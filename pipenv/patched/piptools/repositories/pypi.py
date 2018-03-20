@@ -277,6 +277,9 @@ class PyPIRepository(BaseRepository):
         }
 
     def _get_file_hash(self, location):
+        # HACK: avoid downloading whole thing if PyPI is giving us a hash
+        if location.hash:
+            return '%s:%s' % (location.hash_name, location.hash)
         h = hashlib.new(FAVORITE_HASH)
         with open_local_or_remote_file(location, self.session) as fp:
             for chunk in iter(lambda: fp.read(8096), b""):
