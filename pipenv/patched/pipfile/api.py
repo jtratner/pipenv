@@ -7,6 +7,7 @@ import platform
 import six
 import sys
 import os
+import attr
 
 
 def format_full_version(info):
@@ -125,6 +126,67 @@ class PipfileParser(object):
         data.update(self.groups)
         return data
 
+@attr.s(frozen=True)
+class Source(object):
+    #: URL to PyPI instance
+    url = attr.ib(default='')
+    #: If False, skip SSL checks
+    verify_ssl = attr.ib(default=True)
+    #: human name to refer to this source (can be referenced in packages or dev-packages)
+    name = attr.ib(default='')
+
+
+
+@attr.s(frozen=True)
+class Requires(object):
+    """System-level requirements - see PEP508 for more detail"""
+    os_name = attr.ib(default=None)
+    sys_platform = attr.ib(default=None)
+    platform_machine = attr.ib(default=None)
+    platform_python_implementation = attr.ib(default=None)
+    platform_release = attr.ib(default=None)
+    platform_system = attr.ib(default=None)
+    platform_version = attr.ib(default=None)
+    python_version = attr.ib(default=None)
+    python_full_version = attr.ib(default=None)
+    implementation_name = attr.ib(default=None)
+    implementation_version = attr.ib(default=None)
+
+@attr.s(frozen=True)
+class VCSRequirement(object):
+    #: vcs reference name (branch / commit / tag)
+    ref = attr.ib(default=None)
+    #: path to hit - without any of the VCS prefixes (like git+ / http+ / etc)
+    uri = attr.ib(default=None)
+    subdirectory = attr.ib(default=None)
+
+
+
+
+@attr.s(frozen=True)
+class PackageRequirement(object):
+    #: pypi name (internally normalized via something like, e.g., pkg_resources.safe_name)
+    name = attr.ib(default=None)
+    #: extra requirements - see pip / setuptools docs for more
+    extras = attr.ib(default=tuple())
+    specs = attr.ib(default=None)
+    editable = attr.ib(default=False)
+    vcs = attr.ib(default=None)
+    # "specs" in pip requirement
+    version = attr.ib(default=None)
+
+
+@attr.s(frozen=True)
+class RequirementSet(object):
+    packages = attr.ib()
+
+
+class _Pipfile(object):
+    #: source filename
+    filename = attr.ib()
+    sources = attr.ib()
+    packages = attr.ib()
+    dev_packages = attr.ib()
 
 class Pipfile(object):
     def __init__(self, filename):
