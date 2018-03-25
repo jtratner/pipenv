@@ -154,13 +154,28 @@ class Requires(object):
 
 @attr.s(frozen=True)
 class VCSRequirement(object):
+    vcs_name = attr.ib()
     #: vcs reference name (branch / commit / tag)
     ref = attr.ib(default=None)
     #: path to hit - without any of the VCS prefixes (like git+ / http+ / etc)
     uri = attr.ib(default=None)
     subdirectory = attr.ib(default=None)
 
-
+    @classmethod
+    def split_requirement_dict(cls, dct):
+        """Returns (Optional[VCSRequirement], extra_params)"""
+        dct = dict(dct)
+        vcs_dict = {}
+        for vcs_key in  ('git', 'svn', 'hg', 'bzr'):
+            uri = dct.pop(vcs_key, None)
+            if uri:
+                if vcs_dict:
+                    raise ValueError('saw multiple vcs keys!')
+                vcs_dict['vcs_name'] = vcs_key
+                vcs_dict['uri'] = uri
+        for key in ('ref', 'subdirectory'):
+            vcs_dict[key] = dct.pop(key)
+        return cls(**vcs_dict), dct
 
 
 @attr.s(frozen=True)
@@ -174,6 +189,91 @@ class PackageRequirement(object):
     vcs = attr.ib(default=None)
     # "specs" in pip requirement
     version = attr.ib(default=None)
+    markers = attr.ib(default=None)
+
+    def to_json(self):
+        dct = attr.asdict(self)
+        vcs = dct.pop('vcs')
+        dct.pop('name')
+        if vcs:
+            dct.update(vcs.to_json())
+        return {k: v for k, v in dct.items() if v is not None}
+
+    @classmethod
+    def from_json(cls, name, data):
+        # TODO: make API less weird
+        data = dict(data)
+        vcs, my_data = VCSRequirement.split_requirement_dict(data)
+        my_data['name'] = name
+        my_data['vcs'] = vcs
+        return cls(**my_data)
+
+
+class LockedRequirement(PackageRequirement):
+    hashes = attr.ib()
+
+
+@attr.s
+class LockMeta(object):
+    hash = attr.ib()  # hashname => value
+    host_environment_markers = attr.ib()  # Requires instance with *all* fields
+    sources = attr.ib() # list of sources
+    requires = attr.ib() # Requires instance with only subset of fields
+    pipfile_spec = attr.ib(default=6)
+
+    def to_json(self):
+        return {
+            'hash': self.hash,
+            'host-environment-markers': attr.asdict(self.host_environment_markers),
+            'pipfile-spec': self.pipfile_spec,
+            'sources': [attr.asdict(s) for s in self.sources]
+        }
+
+    @classmethod
+    def from_json(cls, dct):
+        dct['host_environment_markers'] = Requires(**dct.pop('host-environment-markers'))
+        dct['pipfile_spec'] = dct.pop('pipfile-spec')
+        dct['requires'] = Requires(**dct['requires'])
+        dct['sources'] = [Source(**s) for s in dct['sources']]
+        return cls(**dct)
+
+
+
+@attr.s
+class LockedRequirementSet(object):
+    requirements = attr.ib(default=tuple())
+
+    def to_json(self):
+        return { # TODO(use safe name here)
+            r.name: r.to_json() for r in self.requirements}
+
+    @classmethod
+    def from_json(cls, dct):
+        requirements = []
+        for name, req in dct.items():
+            req = dict(req)
+            req['name'] = name
+            # TODO: This needs to work!
+            requirements.append(LockedRequirement.from_json(name, **req))
+
+
+@attr.s
+class LockedPipfile(object):
+    default = attr.ib()  # LockedRequirementSet
+    develop = attr.ib()  # LockedRequirementSet
+    meta = attr.ib()
+
+    def to_json(self):
+        return {
+            '_meta': self.meta.to_dict(),
+            'default': self.default.to_json(),
+            'develop': self.default.to_json()
+        }
+
+    @classmethod
+    def from_json(cls, dct):
+        """Generate from python dictionary that is loaded JSON"""
+        meta = dct.pop('_meta')
 
 
 @attr.s(frozen=True)
