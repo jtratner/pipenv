@@ -122,6 +122,7 @@ Further Documentation Guides
    basics
    advanced
    diagnose
+   pipfile
 
 ☤ Pipenv Usage
 --------------

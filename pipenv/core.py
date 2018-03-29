@@ -1062,20 +1062,7 @@ def do_lock(
         clear=clear,
         pre=pre,
     )
-    # Add develop dependencies to lockfile.
-    for dep in results:
-        # Add version information to lockfile.
-        lockfile['develop'].update(
-            {dep['name']: {'version': '=={0}'.format(dep['version'])}}
-        )
-        # Add Hashes to lockfile
-        lockfile['develop'][dep['name']]['hashes'] = dep['hashes']
-        # Add index metadata to lockfile.
-        if 'index' in dep:
-            lockfile['develop'][dep['name']]['index'] = dep['index']
-        # Add PEP 508 specifier metadata to lockfile.
-        if 'markers' in dep:
-            lockfile['develop'][dep['name']]['markers'] = dep['markers']
+    lockfile['develop'].update({r.name: r for r in results})
     # Add refs for VCS installs.
     # TODO: be smarter about this.
     vcs_deps = convert_deps_to_pip(project.vcs_dev_packages, project, r=False)

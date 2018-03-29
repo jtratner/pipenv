@@ -1,3 +1,7 @@
+"""
+Pipfile API
+===========
+"""
 import toml
 
 import codecs
@@ -8,6 +12,7 @@ import six
 import sys
 import os
 import attr
+from attr._compat import metadata_proxy as readonlydict
 
 
 def format_full_version(info):
@@ -136,7 +141,6 @@ class Source(object):
     name = attr.ib(default='')
 
 
-
 @attr.s(frozen=True)
 class Requires(object):
     """System-level requirements - see PEP508 for more detail"""
@@ -154,41 +158,31 @@ class Requires(object):
 
 @attr.s(frozen=True)
 class VCSRequirement(object):
-    vcs_name = attr.ib()
+    """The VCS component of a requirement (included in keys directly)"""
+    #: which type of VCS system you're using
+    vcs_name = attr.ib(type=str)
     #: vcs reference name (branch / commit / tag)
-    ref = attr.ib(default=None)
+    ref = attr.ib(default=None, type=str)
     #: path to hit - without any of the VCS prefixes (like git+ / http+ / etc)
-    uri = attr.ib(default=None)
-    subdirectory = attr.ib(default=None)
-
-    @classmethod
-    def split_requirement_dict(cls, dct):
-        """Returns (Optional[VCSRequirement], extra_params)"""
-        dct = dict(dct)
-        vcs_dict = {}
-        for vcs_key in  ('git', 'svn', 'hg', 'bzr'):
-            uri = dct.pop(vcs_key, None)
-            if uri:
-                if vcs_dict:
-                    raise ValueError('saw multiple vcs keys!')
-                vcs_dict['vcs_name'] = vcs_key
-                vcs_dict['uri'] = uri
-        for key in ('ref', 'subdirectory'):
-            vcs_dict[key] = dct.pop(key)
-        return cls(**vcs_dict), dct
+    uri = attr.ib(default=None, type=str)
+    subdirectory = attr.ib(default=None, type=str)
 
 
 @attr.s(frozen=True)
 class PackageRequirement(object):
+    """Individual package requirement (name is pulled in from Pipfile's mapping"""
     #: pypi name (internally normalized via something like, e.g., pkg_resources.safe_name)
     name = attr.ib(default=None)
     #: extra requirements - see pip / setuptools docs for more
     extras = attr.ib(default=tuple())
     specs = attr.ib(default=None)
+    #: bool - if True, link in package rather than copying it
     editable = attr.ib(default=False)
-    vcs = attr.ib(default=None)
-    # "specs" in pip requirement
+    #: VCSRequirement: set of keys relating to VCS
+    vcs = attr.ib(default=None, type=VCSRequirement)
+    #: "specs" in pip requirement
     version = attr.ib(default=None)
+    #: extra requirement markers for environment
     markers = attr.ib(default=None)
 
     def to_json(self):
@@ -200,25 +194,48 @@ class PackageRequirement(object):
         return {k: v for k, v in dct.items() if v is not None}
 
     @classmethod
-    def from_json(cls, name, data):
+    def from_json(cls, data, name=None):
+        if name:
+            data['name'] = name
         # TODO: make API less weird
         data = dict(data)
-        vcs, my_data = VCSRequirement.split_requirement_dict(data)
-        my_data['name'] = name
-        my_data['vcs'] = vcs
-        return cls(**my_data)
+        vcs_dict = {}
+        for vcs_key in  ('git', 'svn', 'hg', 'bzr'):
+            uri = data.pop(vcs_key, None)
+            if not uri:
+                continue
+            if vcs_dict:
+                raise ValueError('saw multiple vcs keys!')
+            vcs_dict['vcs_name'] = vcs_key
+            vcs_dict['uri'] = uri
+        for key in ('ref', 'subdirectory'):
+            value = data.pop(key, None)
+            if value and not vcs_dict:
+                raise ValueError('%r only valid with vcs requirement' % value)
+            vcs_dict[key] = value
+        if vcs_dict:
+            data['vcs'] = VCSRequirement(**vcs_dict)
+        return cls(**data)
 
 
 class LockedRequirement(PackageRequirement):
+    """Requirement in Pipfile.lock"""
+    #: list of hashes (from warehouse or parsing) of each package available on the package index
     hashes = attr.ib()
 
 
 @attr.s
 class LockMeta(object):
-    hash = attr.ib()  # hashname => value
-    host_environment_markers = attr.ib()  # Requires instance with *all* fields
-    sources = attr.ib() # list of sources
-    requires = attr.ib() # Requires instance with only subset of fields
+    """Metadata about the lockfile"""
+    #: dictionary mapping hashname => value
+    hash = attr.ib()
+    #: host environment from system
+    host_environment_markers = attr.ib()
+    #: List[Source]: sources (with names) to pull from
+    sources = attr.ib()
+    #: Requires: enforceable host-level requirements
+    requires = attr.ib()
+    #: version of the pipfile spec satisfied by pipfile
     pipfile_spec = attr.ib(default=6)
 
     def to_json(self):
@@ -261,19 +278,26 @@ class LockedRequirementSet(object):
 class LockedPipfile(object):
     default = attr.ib()  # LockedRequirementSet
     develop = attr.ib()  # LockedRequirementSet
-    meta = attr.ib()
+    meta = attr.ib(metadata={'json': '_meta'})
 
     def to_json(self):
         return {
             '_meta': self.meta.to_dict(),
-            'default': self.default.to_json(),
-            'develop': self.default.to_json()
+            'default': {key: req.to_json() for key, req in self.default.items()},
+            'develop': {key: req.to_json() for key, req in self.develop.items()}
         }
 
     @classmethod
     def from_json(cls, dct):
         """Generate from python dictionary that is loaded JSON"""
-        meta = dct.pop('_meta')
+        meta = dct.pop('_meta', None)
+        default = [LockedRequirement.from_json(k, r) for k, r in dct.pop('default', {}).items()]
+        develop = [LockedRequirement.from_json(k, r) for k, r in dct.pop('develop', {}).items()]
+        return cls(
+            meta=meta,
+            default=readonly_dict({r.name: r for r in develop}),
+            develop=readonly_dict({r.name: r for r in default})
+        )
 
 
 @attr.s(frozen=True)
@@ -281,6 +305,7 @@ class RequirementSet(object):
     packages = attr.ib()
 
 
+@attr.s
 class _Pipfile(object):
     #: source filename
     filename = attr.ib()

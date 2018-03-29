@@ -20,6 +20,7 @@ white = {version="*", markers="python_version >= '3.6'"}
 [scripts]
 
 tests = "bash ./run-tests.sh"
+docs = "bash -c 'cd docs && make html'"
 
 [pipenv]
 
