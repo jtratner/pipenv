@@ -62,11 +62,10 @@ class HashCache(SafeFileCache):
 
     def _get_file_hash(self, location):
         h = hashlib.new(FAVORITE_HASH)
-        with open_local_or_remote_file(location, self.session) as fp:
-            for chunk in iter(lambda: fp.read(8096), b""):
+        with open_local_or_remote_file(location, self.session, 8096 * 5) as it:
+            for chunk in it:
                 h.update(chunk)
         return ":".join([FAVORITE_HASH, h.hexdigest()])
-
 
 
 class PyPIRepository(BaseRepository):
@@ -350,7 +349,7 @@ class PyPIRepository(BaseRepository):
 
 
 @contextmanager
-def open_local_or_remote_file(link, session):
+def open_local_or_remote_file(link, session, chunk_size):
     """
     Open local or remote file for reading.
 
@@ -368,12 +367,14 @@ def open_local_or_remote_file(link, session):
             raise ValueError("Cannot open directory for read: {}".format(url))
         else:
             with open(local_path, 'rb') as local_file:
-                yield local_file
+                for chunk in iter(lambda: local_file.read(8096), b""):
+                    yield chunk
     else:
         # Remote URL
         headers = {"Accept-Encoding": "identity"}
         response = session.get(url, headers=headers, stream=True)
         try:
-            yield response.raw
+            for chunk in response.iter_content(chunk_size):
+                yield chunk
         finally:
             response.close()
