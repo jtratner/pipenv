@@ -47,18 +47,23 @@ class HashCache(SafeFileCache):
         super(HashCache, self).__init__(*args, **kwargs)
 
     def get_hash(self, location):
-        # if there is no location hash (i.e., md5 / sha256 / etc) we don't want to store it
-        hash_value = None
-        can_hash = location.hash
-        if can_hash:
-            # hash url WITH fragment
-            hash_value = self.get(location.url)
-        if not hash_value:
-            hash_value = self._get_file_hash(location)
-            hash_value = hash_value.encode('utf8')
-        if can_hash:
-            self.set(location.url, hash_value)
-        return hash_value.decode('utf8')
+        try:
+            # if there is no location hash (i.e., md5 / sha256 / etc) we don't want to store it
+            hash_value = None
+            can_hash = location.hash
+            if can_hash:
+                # hash url WITH fragment
+                hash_value = self.get(location.url)
+            if not hash_value:
+                hash_value = self._get_file_hash(location)
+                hash_value = hash_value.encode('utf8')
+            if can_hash:
+                self.set(location.url, hash_value)
+            return hash_value.decode('utf8')
+        except Exception as e:
+            import click
+            click.echo('Exception on %s (%s: %s)' % (location, type(e).__name__, str(e)))
+            raise
 
     def _get_file_hash(self, location):
         h = hashlib.new(FAVORITE_HASH)
